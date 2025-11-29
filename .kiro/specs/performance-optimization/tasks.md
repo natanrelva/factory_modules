@@ -31,7 +31,8 @@
   - Load cache from JSON file
   - _Requirements: 3.4_
 
-- [-]* 1.4 Write unit tests for persistence
+- [x]* 1.4 Write unit tests for persistence
+
 
   - Test Save() and Load() functions
   - Test error handling
@@ -50,6 +51,7 @@
 - [ ]* 2.1 Write property test for energy calculation
   - **Property 5: Silence Detection Accuracy**
   - **Validates: Requirements 4.1**
+
 
 
   - Test that energy < 0.01 is classified as silence
@@ -82,22 +84,27 @@
 - [ ]* 3.1 Write property test for metrics accuracy
   - **Property 8: Metrics Accuracy**
   - **Validates: Requirements 6.1**
+
   - Test that all recorded latencies are preserved
   - Generate random metric sequences
+
 
 - [ ] 3.2 Implement metrics aggregation
   - Calculate averages
   - Calculate percentiles (p50, p95, p99)
+
   - Calculate rates
   - _Requirements: 6.5_
 
 - [ ]* 3.3 Write unit tests for aggregation
   - Test average calculation
+
   - Test percentile calculation
   - Test rate calculation
   - _Requirements: 6.5_
 
 ## Phase 4: Pipeline Manager (TDD)
+
 
 - [ ] 4. Implement Pipeline Manager
   - Create `pkg/pipeline/manager.go`
