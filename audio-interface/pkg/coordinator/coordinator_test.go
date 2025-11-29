@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"github.com/dubbing-system/audio-interface/pkg/integration"
 	"github.com/dubbing-system/audio-interface/pkg/types"
 	"testing"
 	"time"
@@ -417,4 +418,211 @@ func TestAudioInterfaceCoordinator_WorkersRunning(t *testing.T) {
 	}
 
 	t.Logf("Collected metrics from %d modules", summary.TotalModules)
+}
+
+// V2.0 Tests
+
+func TestAudioInterfaceCoordinator_ConnectASR(t *testing.T) {
+	coord := NewAudioInterfaceCoordinator(types.AudioConfig{
+		SampleRate: 16000,
+		Channels:   1,
+		FrameSize:  320,
+		BufferSize: 10,
+	})
+
+	asr := integration.NewASRInterface()
+	
+	err := coord.ConnectASR(asr)
+	if err != nil {
+		t.Fatalf("ConnectASR failed: %v", err)
+	}
+
+	if !coord.IsASRConnected() {
+		t.Error("ASR should be connected")
+	}
+
+	if coord.GetASRInterface() != asr {
+		t.Error("GetASRInterface returned wrong interface")
+	}
+}
+
+func TestAudioInterfaceCoordinator_ConnectTTS(t *testing.T) {
+	coord := NewAudioInterfaceCoordinator(types.AudioConfig{
+		SampleRate: 16000,
+		Channels:   1,
+		FrameSize:  320,
+		BufferSize: 10,
+	})
+
+	tts := integration.NewTTSInterface()
+	
+	err := coord.ConnectTTS(tts)
+	if err != nil {
+		t.Fatalf("ConnectTTS failed: %v", err)
+	}
+
+	if !coord.IsTTSConnected() {
+		t.Error("TTS should be connected")
+	}
+
+	if coord.GetTTSInterface() != tts {
+		t.Error("GetTTSInterface returned wrong interface")
+	}
+}
+
+func TestAudioInterfaceCoordinator_ConnectWhileRunning(t *testing.T) {
+	coord := NewAudioInterfaceCoordinator(types.AudioConfig{
+		SampleRate: 16000,
+		Channels:   1,
+		FrameSize:  320,
+		BufferSize: 10,
+	})
+
+	coord.Initialize()
+	coord.Start()
+	defer coord.Close()
+
+	asr := integration.NewASRInterface()
+	err := coord.ConnectASR(asr)
+	if err == nil {
+		t.Error("Expected error when connecting ASR while running")
+	}
+
+	tts := integration.NewTTSInterface()
+	err = coord.ConnectTTS(tts)
+	if err == nil {
+		t.Error("Expected error when connecting TTS while running")
+	}
+}
+
+func TestAudioInterfaceCoordinator_GetBackpressureStats(t *testing.T) {
+	coord := NewAudioInterfaceCoordinator(types.AudioConfig{
+		SampleRate: 16000,
+		Channels:   1,
+		FrameSize:  320,
+		BufferSize: 10,
+	})
+
+	events, duration := coord.GetBackpressureStats()
+	if events != 0 {
+		t.Errorf("Expected 0 events initially, got %d", events)
+	}
+	if duration != 0 {
+		t.Errorf("Expected 0 duration initially, got %v", duration)
+	}
+}
+
+func TestAudioInterfaceCoordinator_GetAdaptivePolicyStats(t *testing.T) {
+	coord := NewAudioInterfaceCoordinator(types.AudioConfig{
+		SampleRate: 16000,
+		Channels:   1,
+		FrameSize:  320,
+		BufferSize: 10,
+	})
+
+	stats := coord.GetAdaptivePolicyStats()
+	if stats.LatencyThreshold != 80*time.Millisecond {
+		t.Errorf("Expected latency threshold 80ms, got %v", stats.LatencyThreshold)
+	}
+	if stats.ActionsApplied != 0 {
+		t.Errorf("Expected 0 actions initially, got %d", stats.ActionsApplied)
+	}
+}
+
+func TestAudioInterfaceCoordinator_BackpressureIntegration(t *testing.T) {
+	coord := NewAudioInterfaceCoordinator(types.AudioConfig{
+		SampleRate: 16000,
+		Channels:   1,
+		FrameSize:  320,
+		BufferSize: 5, // Small buffer to trigger backpressure
+	})
+
+	err := coord.Initialize()
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	err = coord.Start()
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Close()
+
+	// Let it run for a bit
+	time.Sleep(500 * time.Millisecond)
+
+	// Check if backpressure was triggered
+	events, _ := coord.GetBackpressureStats()
+	t.Logf("Backpressure events: %d", events)
+	
+	// Note: May or may not have backpressure depending on timing
+}
+
+func TestAudioInterfaceCoordinator_AdaptivePolicyIntegration(t *testing.T) {
+	coord := NewAudioInterfaceCoordinator(types.AudioConfig{
+		SampleRate: 16000,
+		Channels:   1,
+		FrameSize:  320,
+		BufferSize: 10,
+	})
+
+	err := coord.Initialize()
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	err = coord.Start()
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Close()
+
+	// Let monitor worker run
+	time.Sleep(1 * time.Second)
+
+	// Check adaptive policy stats
+	stats := coord.GetAdaptivePolicyStats()
+	t.Logf("Adaptive policy actions applied: %d", stats.ActionsApplied)
+	
+	// Note: May or may not have actions depending on metrics
+}
+
+func TestAudioInterfaceCoordinator_ASRIntegration(t *testing.T) {
+	coord := NewAudioInterfaceCoordinator(types.AudioConfig{
+		SampleRate: 16000,
+		Channels:   1,
+		FrameSize:  320,
+		BufferSize: 10,
+	})
+
+	asr := integration.NewASRInterface()
+	asr.Start()
+	defer asr.Stop()
+
+	err := coord.ConnectASR(asr)
+	if err != nil {
+		t.Fatalf("ConnectASR failed: %v", err)
+	}
+
+	err = coord.Initialize()
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	err = coord.Start()
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Close()
+
+	// Let it run and send frames to ASR
+	time.Sleep(500 * time.Millisecond)
+
+	// Check ASR stats
+	framesSent, _ := asr.GetStats()
+	t.Logf("Frames sent to ASR: %d", framesSent)
+	
+	if framesSent == 0 {
+		t.Error("Expected frames to be sent to ASR")
+	}
 }

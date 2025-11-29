@@ -2,7 +2,10 @@ package coordinator
 
 import (
 	"fmt"
+	"github.com/dubbing-system/audio-interface/pkg/adaptive"
+	"github.com/dubbing-system/audio-interface/pkg/backpressure"
 	"github.com/dubbing-system/audio-interface/pkg/capture"
+	"github.com/dubbing-system/audio-interface/pkg/integration"
 	"github.com/dubbing-system/audio-interface/pkg/interfaces"
 	"github.com/dubbing-system/audio-interface/pkg/latency"
 	"github.com/dubbing-system/audio-interface/pkg/metrics"
@@ -15,33 +18,43 @@ import (
 
 // AudioInterfaceCoordinator manages all audio interface components
 type AudioInterfaceCoordinator struct {
-	mu                sync.RWMutex
-	capture           interfaces.AudioCapture
-	playback          interfaces.AudioPlayback
-	synchronizer      interfaces.StreamSynchronizer
-	latencyManager    interfaces.LatencyManager
-	metricsCollector  interfaces.MetricsCollector
-	config            types.AudioConfig
-	running           bool
-	stopChan          chan struct{}
-	captureWorkerDone chan struct{}
-	playbackWorkerDone chan struct{}
-	monitorWorkerDone chan struct{}
+	mu                     sync.RWMutex
+	capture                interfaces.AudioCapture
+	playback               interfaces.AudioPlayback
+	synchronizer           interfaces.StreamSynchronizer
+	latencyManager         interfaces.LatencyManager
+	metricsCollector       interfaces.MetricsCollector
+	config                 types.AudioConfig
+	running                bool
+	stopChan               chan struct{}
+	captureWorkerDone      chan struct{}
+	playbackWorkerDone     chan struct{}
+	monitorWorkerDone      chan struct{}
+	
+	// V2.0 Components
+	backpressureController *backpressure.BackpressureController
+	asrInterface           *integration.ASRInterface
+	ttsInterface           *integration.TTSInterface
+	adaptivePolicy         *adaptive.AdaptivePolicy
 }
 
 // NewAudioInterfaceCoordinator creates a new coordinator
 func NewAudioInterfaceCoordinator(config types.AudioConfig) *AudioInterfaceCoordinator {
 	return &AudioInterfaceCoordinator{
-		capture:           capture.NewWindowsAudioCapture(),
-		playback:          playback.NewWindowsAudioPlayback(),
-		synchronizer:      streamsync.NewStreamSynchronizer(),
-		latencyManager:    latency.NewLatencyManager(100 * time.Millisecond), // Default 100ms target
-		metricsCollector:  metrics.NewMetricsCollector(),
-		config:            config,
-		stopChan:          make(chan struct{}),
-		captureWorkerDone: make(chan struct{}),
-		playbackWorkerDone: make(chan struct{}),
-		monitorWorkerDone: make(chan struct{}),
+		capture:                capture.NewWindowsAudioCapture(),
+		playback:               playback.NewWindowsAudioPlayback(),
+		synchronizer:           streamsync.NewStreamSynchronizer(),
+		latencyManager:         latency.NewLatencyManager(100 * time.Millisecond), // Default 100ms target
+		metricsCollector:       metrics.NewMetricsCollector(),
+		config:                 config,
+		stopChan:               make(chan struct{}),
+		captureWorkerDone:      make(chan struct{}),
+		playbackWorkerDone:     make(chan struct{}),
+		monitorWorkerDone:      make(chan struct{}),
+		
+		// V2.0 Components
+		backpressureController: backpressure.NewBackpressureController(),
+		adaptivePolicy:         adaptive.NewAdaptivePolicy(),
 	}
 }
 
@@ -187,12 +200,35 @@ func (c *AudioInterfaceCoordinator) captureWorker() {
 				return
 			}
 
+			// Check backpressure
+			fillLevel := c.playback.GetBufferFillLevel()
+			if c.backpressureController.ShouldApplyBackpressure(fillLevel) {
+				throttle := c.backpressureController.GetThrottleDuration()
+				if throttle > 0 {
+					time.Sleep(throttle)
+					c.backpressureController.RecordThrottling(throttle)
+					c.metricsCollector.RecordLatency("backpressure", throttle)
+				}
+			}
+
 			// Record capture latency
 			captureLatency := c.capture.GetCaptureLatency()
 			c.metricsCollector.RecordLatency("capture", captureLatency)
 
 			// Sync timestamps
 			c.synchronizer.SyncCapturePlayback(frame.Timestamp, time.Now())
+
+			// Send to ASR if connected
+			if c.asrInterface != nil && c.asrInterface.IsRunning() {
+				if err := c.asrInterface.SendFrame(frame); err != nil {
+					c.metricsCollector.RecordError(types.ErrorInfo{
+						Module:    "Coordinator",
+						Operation: "CaptureWorker",
+						Err:       err,
+						Context:   "Failed to send frame to ASR",
+					})
+				}
+			}
 
 			// Forward frame to playback (with backpressure handling)
 			if err := c.playback.WriteFrame(frame); err != nil {
@@ -238,7 +274,7 @@ func (c *AudioInterfaceCoordinator) playbackWorker() {
 	}
 }
 
-// monitorWorker monitors overall system health
+// monitorWorker monitors overall system health and applies adaptive policies
 func (c *AudioInterfaceCoordinator) monitorWorker() {
 	defer close(c.monitorWorkerDone)
 
@@ -251,21 +287,30 @@ func (c *AudioInterfaceCoordinator) monitorWorker() {
 			return
 
 		case <-ticker.C:
+			// Collect metrics
+			metrics := c.collectAllMetrics()
+			
 			// Update latency manager
 			captureLatency := c.capture.GetCaptureLatency()
 			playbackLatency := c.playback.GetPlaybackLatency()
 			
 			if lm, ok := c.latencyManager.(*latency.LatencyManager); ok {
 				lm.UpdateLatency(captureLatency, playbackLatency)
+			}
 
-				// Check if optimization needed
-				if !lm.IsWithinTarget() {
-					// Attempt buffer optimization
-					cpuLoad := 0.5 // TODO: Get actual CPU load
-					if err := lm.OptimizeBuffers(cpuLoad); err == nil {
-						// Optimization successful
-						c.metricsCollector.RecordLatency("optimization", time.Since(time.Now()))
-					}
+			// Evaluate adaptive policies
+			cpuLoad := 0.5 // TODO: Get actual CPU load
+			actions := c.adaptivePolicy.Evaluate(metrics, metrics.Underruns, cpuLoad)
+			
+			// Apply actions
+			for _, action := range actions {
+				if err := c.applyAction(action); err != nil {
+					c.metricsCollector.RecordError(types.ErrorInfo{
+						Module:    "Coordinator",
+						Operation: "MonitorWorker",
+						Err:       err,
+						Context:   fmt.Sprintf("Failed to apply action: %s", action.Type.String()),
+					})
 				}
 			}
 
@@ -279,6 +324,9 @@ func (c *AudioInterfaceCoordinator) monitorWorker() {
 					})
 				}
 			}
+			
+			// Record monitoring latency
+			c.metricsCollector.RecordLatency("monitor", time.Since(time.Now()))
 		}
 	}
 }
@@ -323,4 +371,151 @@ func (c *AudioInterfaceCoordinator) GetConfig() types.AudioConfig {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.config
+}
+
+// ConnectASR connects an ASR interface to the coordinator
+func (c *AudioInterfaceCoordinator) ConnectASR(asr *integration.ASRInterface) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	if c.running {
+		return fmt.Errorf("cannot connect ASR while coordinator is running")
+	}
+	
+	c.asrInterface = asr
+	return nil
+}
+
+// ConnectTTS connects a TTS interface to the coordinator
+func (c *AudioInterfaceCoordinator) ConnectTTS(tts *integration.TTSInterface) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	if c.running {
+		return fmt.Errorf("cannot connect TTS while coordinator is running")
+	}
+	
+	c.ttsInterface = tts
+	return nil
+}
+
+// GetBackpressureStats returns backpressure statistics
+func (c *AudioInterfaceCoordinator) GetBackpressureStats() (events int64, duration time.Duration) {
+	return c.backpressureController.GetStats()
+}
+
+// GetAdaptivePolicyStats returns adaptive policy statistics
+func (c *AudioInterfaceCoordinator) GetAdaptivePolicyStats() adaptive.PolicyStats {
+	return c.adaptivePolicy.GetStats()
+}
+
+// collectAllMetrics collects metrics from all components
+func (c *AudioInterfaceCoordinator) collectAllMetrics() types.LatencyMetrics {
+	captureLatency := c.capture.GetCaptureLatency()
+	playbackLatency := c.playback.GetPlaybackLatency()
+	fillLevel := c.playback.GetBufferFillLevel()
+	
+	// Get underruns from playback stats
+	_, underruns, _ := c.playback.(*playback.WindowsAudioPlayback).GetStats()
+	
+	return types.LatencyMetrics{
+		CaptureLatency:  captureLatency,
+		PlaybackLatency: playbackLatency,
+		BufferFillLevel: fillLevel,
+		Underruns:       underruns,
+		Timestamp:       time.Now(),
+	}
+}
+
+// applyAction applies an adaptive policy action
+func (c *AudioInterfaceCoordinator) applyAction(action adaptive.Action) error {
+	switch action.Type {
+	case adaptive.ReduceBuffer:
+		// Reduce buffer size
+		step := action.Value.(int)
+		currentLatency := c.capture.GetCaptureLatency() + c.playback.GetPlaybackLatency()
+		targetLatency := currentLatency - time.Duration(step*10)*time.Millisecond
+		
+		if targetLatency < 20*time.Millisecond {
+			targetLatency = 20 * time.Millisecond
+		}
+		
+		return c.synchronizer.AdjustBufferSize(targetLatency)
+		
+	case adaptive.IncreaseBuffer:
+		// Increase buffer size
+		step := action.Value.(int)
+		currentLatency := c.capture.GetCaptureLatency() + c.playback.GetPlaybackLatency()
+		targetLatency := currentLatency + time.Duration(step*10)*time.Millisecond
+		
+		if targetLatency > 200*time.Millisecond {
+			targetLatency = 200 * time.Millisecond
+		}
+		
+		return c.synchronizer.AdjustBufferSize(targetLatency)
+		
+	case adaptive.SwitchToExclusiveMode:
+		// Switch to exclusive WASAPI mode
+		if lm, ok := c.latencyManager.(*latency.LatencyManager); ok {
+			mode, err := lm.SelectOperationMode()
+			if err == nil && mode == types.Exclusive {
+				// Mode switched successfully
+				return nil
+			}
+			return err
+		}
+		return fmt.Errorf("latency manager does not support mode selection")
+		
+	case adaptive.SwitchToSharedMode:
+		// Switch to shared WASAPI mode
+		if lm, ok := c.latencyManager.(*latency.LatencyManager); ok {
+			mode, err := lm.SelectOperationMode()
+			if err == nil && mode == types.Shared {
+				// Mode switched successfully
+				return nil
+			}
+			return err
+		}
+		return fmt.Errorf("latency manager does not support mode selection")
+		
+	case adaptive.ApplyDriftCompensation:
+		// Apply drift compensation
+		drift := c.synchronizer.GetDriftCompensation()
+		if drift > 5*time.Millisecond || drift < -5*time.Millisecond {
+			// Significant drift detected - adjust
+			return c.synchronizer.AdjustBufferSize(50 * time.Millisecond)
+		}
+		return nil
+		
+	default:
+		return fmt.Errorf("unknown action type: %v", action.Type)
+	}
+}
+
+// GetASRInterface returns the connected ASR interface
+func (c *AudioInterfaceCoordinator) GetASRInterface() *integration.ASRInterface {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.asrInterface
+}
+
+// GetTTSInterface returns the connected TTS interface
+func (c *AudioInterfaceCoordinator) GetTTSInterface() *integration.TTSInterface {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ttsInterface
+}
+
+// IsASRConnected returns whether an ASR interface is connected
+func (c *AudioInterfaceCoordinator) IsASRConnected() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.asrInterface != nil
+}
+
+// IsTTSConnected returns whether a TTS interface is connected
+func (c *AudioInterfaceCoordinator) IsTTSConnected() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ttsInterface != nil
 }
