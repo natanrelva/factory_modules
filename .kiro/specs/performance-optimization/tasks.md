@@ -116,6 +116,8 @@
 - [ ]* 4.1 Write property test for order preservation
   - **Property 2: Parallel Processing Order**
   - **Validates: Requirements 2.3**
+
+
   - Test that output order matches input order
   - Generate random chunk sequences
 
@@ -127,6 +129,7 @@
 
 - [ ] 4.3 Implement error handling
   - Worker panic recovery
+
   - Queue timeout handling
   - Result timeout handling
   - _Requirements: 2.4_
@@ -138,11 +141,13 @@
 
 ## Phase 5: Integration (TDD)
 
+
 - [ ] 5. Integrate cache into translation
   - Modify `pkg/translation-argos/translator.go`
   - Check cache before translating
   - Store result in cache after translating
   - _Requirements: 3.1, 3.2_
+
 
 - [ ]* 5.1 Write integration test for cache hit rate
   - **Property 9: Cache Hit Rate**
@@ -156,6 +161,7 @@
   - Skip processing if silence
   - _Requirements: 4.2_
 
+
 - [ ]* 5.3 Write integration test for silence skip
   - **Property 6: Silence Skip Efficiency**
   - **Validates: Requirements 4.2**
@@ -166,6 +172,7 @@
   - Add metrics to all components
   - Record latencies
   - Record cache hits/misses
+
   - _Requirements: 6.1, 6.2, 6.3_
 
 ## Phase 6: Chunk Size Optimization (TDD)
@@ -178,6 +185,7 @@
 - [ ]* 6.1 Write property test for chunk size
   - **Property 7: Chunk Size Configuration**
   - **Validates: Requirements 5.1**
+
   - Test that all sizes 1-5s work correctly
   - Generate random chunk sizes
 

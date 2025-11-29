@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -37,6 +38,7 @@ var (
 	outputDevice string
 	chunkSize    int
 	apiKey       string
+	mode         string // Performance mode: low-latency, balanced, quality
 	
 	// Implementation selection flags
 	useArgos       bool
@@ -72,7 +74,8 @@ and outputs to a virtual audio device for use in Google Meets, Zoom, Discord, et
 	}
 	startCmd.Flags().StringVar(&inputDevice, "input", "", "Input audio device (microphone)")
 	startCmd.Flags().StringVar(&outputDevice, "output", "", "Output audio device (virtual cable)")
-	startCmd.Flags().IntVar(&chunkSize, "chunk-size", 3, "Audio chunk size in seconds (1-5)")
+	startCmd.Flags().IntVar(&chunkSize, "chunk-size", 0, "Audio chunk size in seconds (1-5, 0=auto based on mode)")
+	startCmd.Flags().StringVar(&mode, "mode", "balanced", "Performance mode: low-latency, balanced, quality")
 	startCmd.Flags().StringVar(&apiKey, "api-key", "", "Translation API key (if using Google Translate)")
 	startCmd.Flags().BoolVar(&useArgos, "use-argos", false, "Use Argos Translate (100% free, offline)")
 	startCmd.Flags().BoolVar(&useEspeak, "use-espeak", false, "Use eSpeak TTS (free, offline)")
@@ -116,6 +119,9 @@ and outputs to a virtual audio device for use in Google Meets, Zoom, Discord, et
 func runStart(cmd *cobra.Command, args []string) {
 	fmt.Println("🎙️  Dubbing MVP - Starting...")
 	fmt.Printf("Version: %s\n\n", version)
+	
+	// Apply performance mode settings
+	applyPerformanceMode()
 
 	// Show selected implementations
 	fmt.Println("📦 Selected implementations:")
@@ -855,4 +861,70 @@ func printStats(asr ASRInterface, translator TranslatorInterface, tts TTSInterfa
 				cacheStats.HitRate*100, cacheStats.Hits, cacheStats.Misses)
 		}
 	}
+}
+
+
+// Performance mode configuration
+func applyPerformanceMode() {
+	// Normalize mode name
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	
+	// Validate mode
+	validModes := map[string]bool{
+		"low-latency": true,
+		"balanced":    true,
+		"quality":     true,
+	}
+	
+	if !validModes[mode] {
+		fmt.Printf("⚠️  Invalid mode '%s', using 'balanced'\n", mode)
+		mode = "balanced"
+	}
+	
+	// Apply mode settings if chunk size not explicitly set
+	if chunkSize == 0 {
+		switch mode {
+		case "low-latency":
+			chunkSize = 1
+			fmt.Println("⚡ Mode: Low-Latency (1s chunks, fast response)")
+		case "balanced":
+			chunkSize = 2
+			fmt.Println("⚖️  Mode: Balanced (2s chunks, good balance)")
+		case "quality":
+			chunkSize = 3
+			fmt.Println("🎯 Mode: Quality (3s chunks, better accuracy)")
+		}
+	} else {
+		// Validate explicit chunk size
+		if chunkSize < 1 || chunkSize > 5 {
+			fmt.Printf("⚠️  Invalid chunk size %d, using 2s\n", chunkSize)
+			chunkSize = 2
+		}
+		fmt.Printf("📏 Chunk Size: %ds (manual override)\n", chunkSize)
+	}
+	
+	// Enable performance features based on mode
+	switch mode {
+	case "low-latency":
+		// Low latency: enable all optimizations
+		if !useSilenceDetection {
+			useSilenceDetection = true
+			fmt.Println("  ✓ Auto-enabled: Silence Detection")
+		}
+		if !useMetrics {
+			useMetrics = true
+			fmt.Println("  ✓ Auto-enabled: Metrics Collection")
+		}
+	case "balanced":
+		// Balanced: enable silence detection
+		if !useSilenceDetection {
+			useSilenceDetection = true
+			fmt.Println("  ✓ Auto-enabled: Silence Detection")
+		}
+	case "quality":
+		// Quality: no auto-optimizations
+		fmt.Println("  ℹ️  Quality mode: optimizations disabled for accuracy")
+	}
+	
+	fmt.Println()
 }
