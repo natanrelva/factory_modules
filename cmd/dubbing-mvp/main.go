@@ -128,7 +128,7 @@ func runStart(cmd *cobra.Command, args []string) {
 	fmt.Printf("  Output: %s\n", getOutputDevice())
 	fmt.Printf("  Chunk:  %ds\n", chunkSize)
 	fmt.Println("\n💡 Speak in Portuguese → Others hear in English")
-	fmt.Println("⏹️  Press Ctrl+C to stop\n")
+	fmt.Println("⏹️  Press Ctrl+C to stop")
 
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
