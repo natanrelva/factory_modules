@@ -2,10 +2,7 @@ module github.com/user/audio-dubbing-system
 
 go 1.21
 
-require (
-	github.com/ggerganov/whisper.cpp/bindings/go v0.0.0-20240101000000-000000000000
-	github.com/spf13/cobra v1.8.0
-)
+require github.com/spf13/cobra v1.8.0
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

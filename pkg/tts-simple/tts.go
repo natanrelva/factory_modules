@@ -156,8 +156,8 @@ func (t *SimpleTTS) generateMockAudio(text string) []float32 {
 	
 	for i := 0; i < numSamples; i++ {
 		// Generate sine wave
-		t := float64(i) / float64(t.sampleRate)
-		sample := amplitude * math.Sin(2*math.Pi*frequency*t)
+		timePos := float64(i) / float64(t.sampleRate)
+		sample := amplitude * math.Sin(2*math.Pi*frequency*timePos)
 		
 		// Apply envelope (fade in/out) to avoid clicks
 		envelope := 1.0
