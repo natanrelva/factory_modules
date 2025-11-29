@@ -18,7 +18,9 @@ import (
 	// Real implementations
 	argos "github.com/user/audio-dubbing-system/pkg/translation-argos"
 	espeak "github.com/user/audio-dubbing-system/pkg/tts-espeak"
+	ttswindows "github.com/user/audio-dubbing-system/pkg/tts-windows"
 	vosk "github.com/user/audio-dubbing-system/pkg/asr-vosk"
+	audiocapture "github.com/user/audio-dubbing-system/pkg/audio-capture"
 )
 
 var (
@@ -31,9 +33,11 @@ var (
 	apiKey       string
 	
 	// Implementation selection flags
-	useArgos  bool
-	useEspeak bool
-	useVosk   bool
+	useArgos       bool
+	useEspeak      bool
+	useWindowsTTS  bool
+	useVosk        bool
+	useRealAudio   bool
 )
 
 func main() {
@@ -59,7 +63,9 @@ and outputs to a virtual audio device for use in Google Meets, Zoom, Discord, et
 	startCmd.Flags().StringVar(&apiKey, "api-key", "", "Translation API key (if using Google Translate)")
 	startCmd.Flags().BoolVar(&useArgos, "use-argos", false, "Use Argos Translate (100% free, offline)")
 	startCmd.Flags().BoolVar(&useEspeak, "use-espeak", false, "Use eSpeak TTS (free, offline)")
+	startCmd.Flags().BoolVar(&useWindowsTTS, "use-windows-tts", false, "Use Windows TTS (free, native)")
 	startCmd.Flags().BoolVar(&useVosk, "use-vosk", false, "Use Vosk ASR (free, offline)")
+	startCmd.Flags().BoolVar(&useRealAudio, "use-real-audio", false, "Use real microphone capture (experimental)")
 
 	// Config command
 	configCmd := &cobra.Command{
@@ -114,13 +120,20 @@ func runStart(cmd *cobra.Command, args []string) {
 	}
 	
 	// TTS
-	if useEspeak {
+	if useWindowsTTS {
+		fmt.Println("  ✓ TTS: Windows TTS (free, native)")
+	} else if useEspeak {
 		fmt.Println("  ✓ TTS: eSpeak (free, offline)")
 	} else {
 		fmt.Println("  ✓ TTS: Mock (simulated)")
 	}
 	
-	fmt.Println("  ✓ Audio: Mock (simulated)")
+	// Audio
+	if useRealAudio {
+		fmt.Println("  ✓ Audio: Real Microphone Capture (experimental)")
+	} else {
+		fmt.Println("  ✓ Audio: Mock (simulated)")
+	}
 
 	fmt.Println("\n🚀 Dubbing started!")
 	fmt.Println("📊 Status:")
@@ -192,6 +205,32 @@ func processingLoop() {
 	// Initialize all modules
 	log.Println("Initializing pipeline modules...")
 	
+	// 0. Initialize Audio Capture (if using real audio)
+	var audioCapture *audiocapture.AudioCapture
+	if useRealAudio {
+		log.Println("Initializing real audio capture...")
+		config := audiocapture.Config{
+			DeviceName: inputDevice,
+			SampleRate: 16000,
+			Channels:   1,
+			BufferSize: 16000 * 10, // 10 seconds buffer
+		}
+		var err error
+		audioCapture, err = audiocapture.NewAudioCapture(config)
+		if err != nil {
+			log.Printf("⚠️  Failed to initialize audio capture: %v", err)
+			log.Println("Falling back to mock audio...")
+			useRealAudio = false
+		} else {
+			defer audioCapture.Close()
+			// Start recording
+			if err := audioCapture.StartRecording(); err != nil {
+				log.Printf("⚠️  Failed to start recording: %v", err)
+				useRealAudio = false
+			}
+		}
+	}
+	
 	// 1. Initialize ASR
 	asr, err := initASR()
 	if err != nil {
@@ -228,9 +267,16 @@ func processingLoop() {
 		chunkCount++
 		log.Printf("--- Processing chunk #%d ---", chunkCount)
 		
-		// 1. Capture audio chunk (M6)
-		// TODO: Integrate with actual M6 audio capture
-		audioChunk := captureAudioChunk()
+		// 1. Capture audio chunk
+		var audioChunk []float32
+		if useRealAudio && audioCapture != nil {
+			// Use real audio capture
+			audioChunk = audioCapture.GetChunk(float64(chunkSize))
+		} else {
+			// Use mock audio
+			audioChunk = captureAudioChunk()
+		}
+		
 		if len(audioChunk) == 0 {
 			log.Println("No audio captured (silence)")
 			continue
@@ -404,6 +450,17 @@ func initMockTranslator() (TranslatorInterface, error) {
 }
 
 func initTTS() (TTSInterface, error) {
+	if useWindowsTTS {
+		log.Println("Initializing Windows TTS (free, native)...")
+		windowsTTS, err := ttswindows.NewWindowsTTS("en-us", 175, 16000)
+		if err != nil {
+			log.Printf("⚠️  Windows TTS failed to initialize: %v", err)
+			log.Println("Falling back to Mock TTS...")
+			return initMockTTS()
+		}
+		return &windowsTTSWrapper{windowsTTS}, nil
+	}
+	
 	if useEspeak {
 		log.Println("Initializing eSpeak TTS (free, offline)...")
 		config := espeak.Config{
@@ -525,6 +582,28 @@ func (w *mockTranslatorWrapper) GetStats() TranslatorStats {
 		SentencesTranslated: stats.SentencesTranslated,
 		AverageLatency:      stats.AverageLatency,
 		ErrorCount:          stats.ErrorCount,
+	}
+}
+
+// Windows TTS Wrapper
+type windowsTTSWrapper struct {
+	tts *ttswindows.WindowsTTS
+}
+
+func (w *windowsTTSWrapper) Synthesize(textEN string) ([]float32, error) {
+	return w.tts.Synthesize(textEN)
+}
+
+func (w *windowsTTSWrapper) Close() error {
+	return w.tts.Close()
+}
+
+func (w *windowsTTSWrapper) GetStats() TTSStats {
+	// Windows TTS não tem stats ainda, retornar zeros
+	return TTSStats{
+		SentencesSynthesized: 0,
+		AverageLatency:       0,
+		ErrorCount:           0,
 	}
 }
 

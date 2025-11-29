@@ -2,7 +2,10 @@ module github.com/user/audio-dubbing-system
 
 go 1.21
 
-require github.com/spf13/cobra v1.8.0
+require (
+	github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b
+	github.com/spf13/cobra v1.8.0
+)
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

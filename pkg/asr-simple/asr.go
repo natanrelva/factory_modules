@@ -82,58 +82,39 @@ func (a *SimpleASR) Transcribe(audioSamples []float32) (string, error) {
 		return "", fmt.Errorf("ASR not initialized")
 	}
 
-	start := time.Now()
-
-	// TODO: Implement actual Whisper transcription when library is available:
-	/*
-	// Process audio with Whisper
-	ctx := a.model.NewContext()
-	defer ctx.Close()
+	// Simulate speech recognition
+	// For MVP, we'll return empty (no speech detected) most of the time
+	// In real implementation, this would use Whisper or similar
 	
-	// Set language
-	ctx.SetLanguage(a.language)
+	// Simulate occasional speech detection (every 7 chunks for demo)
+	a.mu.Lock()
+	a.chunksProcessed++
+	chunkCount := a.chunksProcessed
+	a.mu.Unlock()
 	
-	// Process audio
-	if err := ctx.Process(audioSamples, nil, nil); err != nil {
-		a.recordError()
-		return "", fmt.Errorf("transcription failed: %w", err)
-	}
-	
-	// Get transcribed text
-	text := ""
-	for {
-		segment, err := ctx.NextSegment()
-		if err != nil {
-			break
+	// Detect "speech" every 7 chunks for demo
+	if chunkCount%7 == 0 {
+		mockTexts := []string{
+			"olá",
+			"bom dia",
+			"como vai você",
+			"eu gosto de programar",
+			"obrigado",
+			"até logo",
+			"meu nome é João",
+			"reunião importante",
 		}
-		text += segment.Text + " "
+		
+		// Return different text based on chunk count
+		index := int((chunkCount/7 - 1) % int64(len(mockTexts)))
+		text := mockTexts[index]
+		log.Printf("ASR: Detected speech: '%s'", text)
+		
+		return text, nil
 	}
-	*/
 	
-	// For MVP simulation, detect if audio has energy
-	hasEnergy := detectVoiceActivity(audioSamples)
-	
-	var text string
-	if hasEnergy {
-		// Simulate transcription with placeholder
-		text = "[PT: Texto transcrito apareceria aqui]"
-		log.Printf("ASR: Detected speech, transcribing %d samples", len(audioSamples))
-	} else {
-		// Silent audio
-		text = ""
-		log.Printf("ASR: No speech detected (silence)")
-	}
-
-	elapsed := time.Since(start)
-	
-	// Record statistics
-	a.recordLatency(elapsed)
-	
-	if text != "" {
-		log.Printf("ASR: '%s' (%v)", text, elapsed)
-	}
-
-	return text, nil
+	log.Println("ASR: No speech detected (silence)")
+	return "", nil
 }
 
 // detectVoiceActivity performs simple energy-based VAD
