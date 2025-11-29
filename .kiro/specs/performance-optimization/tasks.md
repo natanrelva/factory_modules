@@ -2,10 +2,13 @@
 
 ## Phase 1: Translation Cache (TDD)
 
-- [ ] 1. Implement Translation Cache
+- [x] 1. Implement Translation Cache
+
+
   - Create `pkg/cache/translation_cache.go`
   - Implement LRU cache with map + doubly-linked list
   - _Requirements: 3.1, 3.2, 3.3_
+
 
 - [ ]* 1.1 Write property test for cache consistency
   - **Property 1: Cache Consistency**
@@ -13,14 +16,17 @@
   - Test that Get(key) after Set(key, value) returns value
   - Use testing/quick for random operations
 
+
 - [ ]* 1.2 Write property test for LRU eviction
   - **Property 3: Cache LRU Eviction**
   - **Validates: Requirements 3.3**
   - Test that oldest entry is evicted when cache is full
+
   - Generate random sequences of Set operations
 
 - [ ] 1.3 Implement cache persistence
   - Save cache to JSON file
+
   - Load cache from JSON file
   - _Requirements: 3.4_
 
