@@ -5,6 +5,8 @@ import (
 	"log"
 	"sync"
 	"time"
+	
+	audiocapturepython "github.com/user/audio-dubbing-system/pkg/audio-capture-python"
 )
 
 // AudioCapture provides real-time audio capture from microphone
@@ -20,12 +22,16 @@ type AudioCapture struct {
 	// PortAudio stream (when available)
 	stream interface{} // *portaudio.Stream when portaudio build tag is used
 	
+	// PyAudio capture (Python-based)
+	pythonCapture *audiocapturepython.PythonAudioCapture
+	
 	// Statistics
 	mu              sync.RWMutex
 	chunksRecorded  int64
 	totalSamples    int64
 	isRecording     bool
 	usePortAudio    bool
+	usePyAudio      bool
 }
 
 // Config holds audio capture configuration
@@ -53,27 +59,43 @@ func NewAudioCapture(config Config) (*AudioCapture, error) {
 		buffer:     make([]float32, 0, config.SampleRate*5), // 5 seconds buffer
 	}
 	
-	// Try to initialize PortAudio (if available)
-	// This will only work if compiled with: go build -tags portaudio
-	if err := capture.tryInitPortAudio(); err != nil {
-		log.Printf("⚠️  PortAudio not available: %v", err)
-		log.Println("Using simulated audio capture (for testing)")
+	// Try to initialize PyAudio first (Python-based, easier to install)
+	pythonCapture, err := audiocapturepython.NewPythonAudioCapture(config.DeviceName, config.SampleRate)
+	if err == nil {
+		log.Println("✓ Using PyAudio for real microphone capture")
+		capture.pythonCapture = pythonCapture
+		capture.usePyAudio = true
 		capture.usePortAudio = false
 	} else {
-		log.Println("✓ Using PortAudio for real microphone capture")
-		capture.usePortAudio = true
+		log.Printf("⚠️  PyAudio not available: %v", err)
+		
+		// Try to initialize PortAudio (if available)
+		// This will only work if compiled with: go build -tags portaudio
+		if err := capture.tryInitPortAudio(); err != nil {
+			log.Printf("⚠️  PortAudio not available: %v", err)
+			log.Println("Using simulated audio capture (for testing)")
+			capture.usePortAudio = false
+			capture.usePyAudio = false
+		} else {
+			log.Println("✓ Using PortAudio for real microphone capture")
+			capture.usePortAudio = true
+			capture.usePyAudio = false
+		}
 	}
 	
 	log.Printf("✓ Audio Capture initialized")
 	log.Printf("  Device: %s", getDeviceName(config.DeviceName))
 	log.Printf("  Sample Rate: %d Hz", config.SampleRate)
 	log.Printf("  Channels: %d", config.Channels)
-	log.Printf("  Mode: %s", getMode(capture.usePortAudio))
+	log.Printf("  Mode: %s", getMode(capture.usePyAudio, capture.usePortAudio))
 	
 	return capture, nil
 }
 
-func getMode(usePortAudio bool) string {
+func getMode(usePyAudio, usePortAudio bool) string {
+	if usePyAudio {
+		return "Real (PyAudio)"
+	}
 	if usePortAudio {
 		return "Real (PortAudio)"
 	}
@@ -91,6 +113,12 @@ func (c *AudioCapture) StartRecording() error {
 	c.mu.Unlock()
 	
 	log.Println("🎙️  Started recording from microphone...")
+	
+	if c.usePyAudio {
+		// Use PyAudio (Python-based)
+		// Recording happens on-demand in GetChunk()
+		return nil
+	}
 	
 	if c.usePortAudio {
 		// Start PortAudio stream
@@ -120,6 +148,24 @@ func (c *AudioCapture) StopRecording() error {
 
 // GetChunk retrieves the last N seconds of audio
 func (c *AudioCapture) GetChunk(durationSeconds float64) []float32 {
+	// If using PyAudio, capture in real-time
+	if c.usePyAudio && c.pythonCapture != nil {
+		samples, err := c.pythonCapture.Capture(durationSeconds)
+		if err != nil {
+			log.Printf("⚠️  PyAudio capture failed: %v", err)
+			// Fallback to simulated
+			return c.getSimulatedChunk(durationSeconds)
+		}
+		
+		c.mu.Lock()
+		c.chunksRecorded++
+		c.totalSamples += int64(len(samples))
+		c.mu.Unlock()
+		
+		return samples
+	}
+	
+	// Otherwise use buffer-based approach
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
 	
@@ -140,6 +186,19 @@ func (c *AudioCapture) GetChunk(durationSeconds float64) []float32 {
 	copy(chunk, c.buffer[startIdx:])
 	
 	return chunk
+}
+
+// getSimulatedChunk generates simulated audio chunk
+func (c *AudioCapture) getSimulatedChunk(durationSeconds float64) []float32 {
+	numSamples := int(durationSeconds * float64(c.sampleRate))
+	samples := make([]float32, numSamples)
+	
+	// Generate white noise
+	for i := range samples {
+		samples[i] = (float32(i%100) / 100.0) * 0.01 // Very low amplitude noise
+	}
+	
+	return samples
 }
 
 // ClearBuffer clears the audio buffer
