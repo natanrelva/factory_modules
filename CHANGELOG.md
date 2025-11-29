@@ -96,6 +96,14 @@ Primeira versão funcional do MVP de dublagem PT→EN usando apenas tecnologias 
 
 ## [Unreleased]
 
+### ✨ Adicionado (v1.1.0-dev)
+- **Integração global com todos os modelos** - MVP agora suporta Argos, eSpeak e Vosk
+- Interfaces comuns para ASR, Translation e TTS
+- Flags `--use-argos`, `--use-espeak`, `--use-vosk`
+- Wrappers para adaptar diferentes implementações
+- Fallback automático para mock se implementação real falhar
+- Atualizado `.gitignore` para ignorar executáveis
+
 ### Planejado para v1.1.0
 - Integração M6 Audio (captura/reprodução real)
 - Instalação automatizada do eSpeak
