@@ -20,6 +20,7 @@ import (
 	espeak "github.com/user/audio-dubbing-system/pkg/tts-espeak"
 	ttswindows "github.com/user/audio-dubbing-system/pkg/tts-windows"
 	vosk "github.com/user/audio-dubbing-system/pkg/asr-vosk"
+	asrvoskpython "github.com/user/audio-dubbing-system/pkg/asr-vosk-python"
 	audiocapture "github.com/user/audio-dubbing-system/pkg/audio-capture"
 )
 
@@ -383,18 +384,14 @@ type TTSStats struct {
 
 func initASR() (ASRInterface, error) {
 	if useVosk {
-		log.Println("Initializing Vosk ASR (free, offline)...")
-		config := vosk.Config{
-			ModelPath:  "models/vosk-model-small-pt-0.3",
-			SampleRate: 16000,
-		}
-		voskASR, err := vosk.NewVoskASR(config)
+		log.Println("Initializing Vosk ASR (free, offline, Python)...")
+		voskASR, err := asrvoskpython.NewVoskASR("pt", 16000)
 		if err != nil {
 			log.Printf("⚠️  Vosk ASR failed to initialize: %v", err)
 			log.Println("Falling back to Mock ASR...")
 			return initMockASR()
 		}
-		return &voskASRWrapper{voskASR}, nil
+		return &voskPythonASRWrapper{voskASR}, nil
 	}
 	
 	return initMockASR()
@@ -497,7 +494,29 @@ func initMockTTS() (TTSInterface, error) {
 
 // Wrapper types to adapt different implementations to common interfaces
 
-// Vosk ASR Wrapper
+// Vosk Python ASR Wrapper
+type voskPythonASRWrapper struct {
+	asr *asrvoskpython.VoskASR
+}
+
+func (w *voskPythonASRWrapper) Transcribe(audioSamples []float32) (string, error) {
+	return w.asr.Transcribe(audioSamples)
+}
+
+func (w *voskPythonASRWrapper) Close() error {
+	return w.asr.Close()
+}
+
+func (w *voskPythonASRWrapper) GetStats() ASRStats {
+	// Vosk Python não tem stats ainda, retornar zeros
+	return ASRStats{
+		ChunksProcessed: 0,
+		AverageLatency:  0,
+		ErrorCount:      0,
+	}
+}
+
+// Vosk ASR Wrapper (Go nativo - não usado)
 type voskASRWrapper struct {
 	asr *vosk.VoskASR
 }
