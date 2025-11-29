@@ -1,11 +1,13 @@
 package asrvosk
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
 	"time"
+	
+	// TODO: Add vosk library when available
+	// _ "encoding/json"
 )
 
 // VoskASR provides speech recognition using Vosk

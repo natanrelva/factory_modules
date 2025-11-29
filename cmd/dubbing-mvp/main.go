@@ -10,19 +10,30 @@ import (
 
 	"github.com/spf13/cobra"
 	
+	// Mock implementations
 	asrsimple "github.com/user/audio-dubbing-system/pkg/asr-simple"
 	translationsimple "github.com/user/audio-dubbing-system/pkg/translation-simple"
 	ttssimple "github.com/user/audio-dubbing-system/pkg/tts-simple"
+	
+	// Real implementations
+	argos "github.com/user/audio-dubbing-system/pkg/translation-argos"
+	espeak "github.com/user/audio-dubbing-system/pkg/tts-espeak"
+	vosk "github.com/user/audio-dubbing-system/pkg/asr-vosk"
 )
 
 var (
-	version = "0.1.0-mvp"
+	version = "1.0.0"
 	
 	// Configuration flags
 	inputDevice  string
 	outputDevice string
 	chunkSize    int
 	apiKey       string
+	
+	// Implementation selection flags
+	useArgos  bool
+	useEspeak bool
+	useVosk   bool
 )
 
 func main() {
@@ -46,6 +57,9 @@ and outputs to a virtual audio device for use in Google Meets, Zoom, Discord, et
 	startCmd.Flags().StringVar(&outputDevice, "output", "", "Output audio device (virtual cable)")
 	startCmd.Flags().IntVar(&chunkSize, "chunk-size", 3, "Audio chunk size in seconds (1-5)")
 	startCmd.Flags().StringVar(&apiKey, "api-key", "", "Translation API key (if using Google Translate)")
+	startCmd.Flags().BoolVar(&useArgos, "use-argos", false, "Use Argos Translate (100% free, offline)")
+	startCmd.Flags().BoolVar(&useEspeak, "use-espeak", false, "Use eSpeak TTS (free, offline)")
+	startCmd.Flags().BoolVar(&useVosk, "use-vosk", false, "Use Vosk ASR (free, offline)")
 
 	// Config command
 	configCmd := &cobra.Command{
@@ -82,20 +96,31 @@ func runStart(cmd *cobra.Command, args []string) {
 	fmt.Println("🎙️  Dubbing MVP - Starting...")
 	fmt.Printf("Version: %s\n\n", version)
 
-	// TODO: Initialize components
-	fmt.Println("📦 Initializing components...")
+	// Show selected implementations
+	fmt.Println("📦 Selected implementations:")
 	
-	// 1. Audio Interface (M6)
-	fmt.Println("  ✓ Audio Interface (M6)")
+	// ASR
+	if useVosk {
+		fmt.Println("  ✓ ASR: Vosk (free, offline)")
+	} else {
+		fmt.Println("  ✓ ASR: Mock (simulated)")
+	}
 	
-	// 2. ASR Module (M2 - simplified)
-	fmt.Println("  ✓ ASR Module (Whisper Tiny)")
+	// Translation
+	if useArgos {
+		fmt.Println("  ✓ Translation: Argos Translate (100% free, offline)")
+	} else {
+		fmt.Println("  ✓ Translation: Mock (simulated)")
+	}
 	
-	// 3. Translation Module (M3 - simplified)
-	fmt.Println("  ✓ Translation Module (Google Translate)")
+	// TTS
+	if useEspeak {
+		fmt.Println("  ✓ TTS: eSpeak (free, offline)")
+	} else {
+		fmt.Println("  ✓ TTS: Mock (simulated)")
+	}
 	
-	// 4. TTS Module (M4 - simplified)
-	fmt.Println("  ✓ TTS Module (Piper TTS)")
+	fmt.Println("  ✓ Audio: Mock (simulated)")
 
 	fmt.Println("\n🚀 Dubbing started!")
 	fmt.Println("📊 Status:")
@@ -270,36 +295,281 @@ func getOutputDevice() string {
 
 // Module initialization functions
 
-func initASR() (*asrsimple.SimpleASR, error) {
+// ASRInterface defines the common interface for ASR implementations
+type ASRInterface interface {
+	Transcribe(audioSamples []float32) (string, error)
+	Close() error
+	GetStats() ASRStats
+}
+
+// TranslatorInterface defines the common interface for translator implementations
+type TranslatorInterface interface {
+	Translate(textPT string) (string, error)
+	Close() error
+	GetStats() TranslatorStats
+}
+
+// TTSInterface defines the common interface for TTS implementations
+type TTSInterface interface {
+	Synthesize(textEN string) ([]float32, error)
+	Close() error
+	GetStats() TTSStats
+}
+
+// Stats types
+type ASRStats struct {
+	ChunksProcessed int64
+	AverageLatency  time.Duration
+	ErrorCount      int64
+}
+
+type TranslatorStats struct {
+	SentencesTranslated int64
+	AverageLatency      time.Duration
+	ErrorCount          int64
+}
+
+type TTSStats struct {
+	SentencesSynthesized int64
+	AverageLatency       time.Duration
+	ErrorCount           int64
+}
+
+func initASR() (ASRInterface, error) {
+	if useVosk {
+		log.Println("Initializing Vosk ASR (free, offline)...")
+		config := vosk.Config{
+			ModelPath:  "models/vosk-model-small-pt-0.3",
+			SampleRate: 16000,
+		}
+		voskASR, err := vosk.NewVoskASR(config)
+		if err != nil {
+			log.Printf("⚠️  Vosk ASR failed to initialize: %v", err)
+			log.Println("Falling back to Mock ASR...")
+			return initMockASR()
+		}
+		return &voskASRWrapper{voskASR}, nil
+	}
+	
+	return initMockASR()
+}
+
+func initMockASR() (ASRInterface, error) {
+	log.Println("Initializing Mock ASR (simulated)...")
 	config := asrsimple.Config{
 		ModelPath:  "models/ggml-tiny.bin",
 		Language:   "pt",
 		SampleRate: 16000,
 		Threads:    4,
 	}
-	
-	return asrsimple.NewSimpleASR(config)
+	mockASR, err := asrsimple.NewSimpleASR(config)
+	if err != nil {
+		return nil, err
+	}
+	return &mockASRWrapper{mockASR}, nil
 }
 
-func initTranslator() (*translationsimple.SimpleTranslator, error) {
+func initTranslator() (TranslatorInterface, error) {
+	if useArgos {
+		log.Println("Initializing Argos Translate (100% free, offline)...")
+		config := argos.Config{
+			SourceLang: "pt",
+			TargetLang: "en",
+		}
+		argosTranslator, err := argos.NewArgosTranslator(config)
+		if err != nil {
+			log.Printf("⚠️  Argos Translate failed to initialize: %v", err)
+			log.Println("Falling back to Mock Translator...")
+			return initMockTranslator()
+		}
+		return &argosTranslatorWrapper{argosTranslator}, nil
+	}
+	
+	return initMockTranslator()
+}
+
+func initMockTranslator() (TranslatorInterface, error) {
+	log.Println("Initializing Mock Translator (simulated)...")
 	config := translationsimple.Config{
 		APIKey:     apiKey,
 		SourceLang: "pt",
 		TargetLang: "en",
 		UseAPI:     apiKey != "",
 	}
-	
-	return translationsimple.NewSimpleTranslator(config)
+	mockTranslator, err := translationsimple.NewSimpleTranslator(config)
+	if err != nil {
+		return nil, err
+	}
+	return &mockTranslatorWrapper{mockTranslator}, nil
 }
 
-func initTTS() (*ttssimple.SimpleTTS, error) {
+func initTTS() (TTSInterface, error) {
+	if useEspeak {
+		log.Println("Initializing eSpeak TTS (free, offline)...")
+		config := espeak.Config{
+			Voice:      "en-us",
+			Speed:      175,
+			Pitch:      50,
+			SampleRate: 16000,
+		}
+		espeakTTS, err := espeak.NewESpeakTTS(config)
+		if err != nil {
+			log.Printf("⚠️  eSpeak TTS failed to initialize: %v", err)
+			log.Println("Falling back to Mock TTS...")
+			return initMockTTS()
+		}
+		return &espeakTTSWrapper{espeakTTS}, nil
+	}
+	
+	return initMockTTS()
+}
+
+func initMockTTS() (TTSInterface, error) {
+	log.Println("Initializing Mock TTS (simulated)...")
 	config := ttssimple.Config{
 		Voice:      "en-us-female",
 		SampleRate: 16000,
-		Engine:     "mock", // Will use real engine when available
+		Engine:     "mock",
 	}
-	
-	return ttssimple.NewSimpleTTS(config)
+	mockTTS, err := ttssimple.NewSimpleTTS(config)
+	if err != nil {
+		return nil, err
+	}
+	return &mockTTSWrapper{mockTTS}, nil
+}
+
+// Wrapper types to adapt different implementations to common interfaces
+
+// Vosk ASR Wrapper
+type voskASRWrapper struct {
+	asr *vosk.VoskASR
+}
+
+func (w *voskASRWrapper) Transcribe(audioSamples []float32) (string, error) {
+	return w.asr.Transcribe(audioSamples)
+}
+
+func (w *voskASRWrapper) Close() error {
+	return w.asr.Close()
+}
+
+func (w *voskASRWrapper) GetStats() ASRStats {
+	stats := w.asr.GetStats()
+	return ASRStats{
+		ChunksProcessed: stats.ChunksProcessed,
+		AverageLatency:  stats.AverageLatency,
+		ErrorCount:      stats.ErrorCount,
+	}
+}
+
+// Mock ASR Wrapper
+type mockASRWrapper struct {
+	asr *asrsimple.SimpleASR
+}
+
+func (w *mockASRWrapper) Transcribe(audioSamples []float32) (string, error) {
+	return w.asr.Transcribe(audioSamples)
+}
+
+func (w *mockASRWrapper) Close() error {
+	return w.asr.Close()
+}
+
+func (w *mockASRWrapper) GetStats() ASRStats {
+	stats := w.asr.GetStats()
+	return ASRStats{
+		ChunksProcessed: stats.ChunksProcessed,
+		AverageLatency:  stats.AverageLatency,
+		ErrorCount:      stats.ErrorCount,
+	}
+}
+
+// Argos Translator Wrapper
+type argosTranslatorWrapper struct {
+	translator *argos.ArgosTranslator
+}
+
+func (w *argosTranslatorWrapper) Translate(textPT string) (string, error) {
+	return w.translator.Translate(textPT)
+}
+
+func (w *argosTranslatorWrapper) Close() error {
+	return w.translator.Close()
+}
+
+func (w *argosTranslatorWrapper) GetStats() TranslatorStats {
+	stats := w.translator.GetStats()
+	return TranslatorStats{
+		SentencesTranslated: stats.SentencesTranslated,
+		AverageLatency:      stats.AverageLatency,
+		ErrorCount:          stats.ErrorCount,
+	}
+}
+
+// Mock Translator Wrapper
+type mockTranslatorWrapper struct {
+	translator *translationsimple.SimpleTranslator
+}
+
+func (w *mockTranslatorWrapper) Translate(textPT string) (string, error) {
+	return w.translator.Translate(textPT)
+}
+
+func (w *mockTranslatorWrapper) Close() error {
+	return w.translator.Close()
+}
+
+func (w *mockTranslatorWrapper) GetStats() TranslatorStats {
+	stats := w.translator.GetStats()
+	return TranslatorStats{
+		SentencesTranslated: stats.SentencesTranslated,
+		AverageLatency:      stats.AverageLatency,
+		ErrorCount:          stats.ErrorCount,
+	}
+}
+
+// eSpeak TTS Wrapper
+type espeakTTSWrapper struct {
+	tts *espeak.ESpeakTTS
+}
+
+func (w *espeakTTSWrapper) Synthesize(textEN string) ([]float32, error) {
+	return w.tts.Synthesize(textEN)
+}
+
+func (w *espeakTTSWrapper) Close() error {
+	return w.tts.Close()
+}
+
+func (w *espeakTTSWrapper) GetStats() TTSStats {
+	stats := w.tts.GetStats()
+	return TTSStats{
+		SentencesSynthesized: stats.SentencesSynthesized,
+		AverageLatency:       stats.AverageLatency,
+		ErrorCount:           stats.ErrorCount,
+	}
+}
+
+// Mock TTS Wrapper
+type mockTTSWrapper struct {
+	tts *ttssimple.SimpleTTS
+}
+
+func (w *mockTTSWrapper) Synthesize(textEN string) ([]float32, error) {
+	return w.tts.Synthesize(textEN)
+}
+
+func (w *mockTTSWrapper) Close() error {
+	return w.tts.Close()
+}
+
+func (w *mockTTSWrapper) GetStats() TTSStats {
+	stats := w.tts.GetStats()
+	return TTSStats{
+		SentencesSynthesized: stats.SentencesSynthesized,
+		AverageLatency:       stats.AverageLatency,
+		ErrorCount:           stats.ErrorCount,
+	}
 }
 
 // Audio capture/playback functions (mock for now)
@@ -340,7 +610,7 @@ func playAudioChunk(audioSamples []float32) {
 
 // Statistics printing
 
-func printStats(asr *asrsimple.SimpleASR, translator *translationsimple.SimpleTranslator, tts *ttssimple.SimpleTTS) {
+func printStats(asr ASRInterface, translator TranslatorInterface, tts TTSInterface) {
 	asrStats := asr.GetStats()
 	transStats := translator.GetStats()
 	ttsStats := tts.GetStats()

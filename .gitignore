@@ -29,3 +29,18 @@ coverage
 bower_components
 
 # node_modules
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+dubbing-mvp
+dubbing-mvp.exe
+
+# Test binaries
+*.test
+*.out
+
+# Go workspace file
+go.work
