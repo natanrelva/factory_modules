@@ -22,6 +22,11 @@ import (
 	vosk "github.com/user/audio-dubbing-system/pkg/asr-vosk"
 	asrvoskpython "github.com/user/audio-dubbing-system/pkg/asr-vosk-python"
 	audiocapture "github.com/user/audio-dubbing-system/pkg/audio-capture"
+	
+	// Performance optimization
+	"github.com/user/audio-dubbing-system/pkg/cache"
+	"github.com/user/audio-dubbing-system/pkg/silence"
+	"github.com/user/audio-dubbing-system/pkg/metrics"
 )
 
 var (
@@ -39,6 +44,13 @@ var (
 	useWindowsTTS  bool
 	useVosk        bool
 	useRealAudio   bool
+	useSilenceDetection bool
+	useMetrics     bool
+	
+	// Performance components
+	silenceDetector  *silence.SilenceDetector
+	metricsCollector *metrics.MetricsCollector
+	translationCache *cache.TranslationCache
 )
 
 func main() {
@@ -67,6 +79,8 @@ and outputs to a virtual audio device for use in Google Meets, Zoom, Discord, et
 	startCmd.Flags().BoolVar(&useWindowsTTS, "use-windows-tts", false, "Use Windows TTS (free, native)")
 	startCmd.Flags().BoolVar(&useVosk, "use-vosk", false, "Use Vosk ASR (free, offline)")
 	startCmd.Flags().BoolVar(&useRealAudio, "use-real-audio", false, "Use real microphone capture (experimental)")
+	startCmd.Flags().BoolVar(&useSilenceDetection, "use-silence-detection", false, "Use silence detection to skip processing (performance)")
+	startCmd.Flags().BoolVar(&useMetrics, "use-metrics", false, "Enable detailed metrics collection (performance monitoring)")
 
 	// Config command
 	configCmd := &cobra.Command{
@@ -135,6 +149,15 @@ func runStart(cmd *cobra.Command, args []string) {
 	} else {
 		fmt.Println("  ✓ Audio: Mock (simulated)")
 	}
+	
+	// Performance features
+	if useSilenceDetection {
+		fmt.Println("  ✓ Silence Detection: Enabled (performance boost)")
+	}
+	if useMetrics {
+		fmt.Println("  ✓ Metrics Collection: Enabled (detailed monitoring)")
+	}
+	fmt.Println("  ✓ Translation Cache: Enabled")
 
 	fmt.Println("\n🚀 Dubbing started!")
 	fmt.Println("📊 Status:")
@@ -206,7 +229,25 @@ func processingLoop() {
 	// Initialize all modules
 	log.Println("Initializing pipeline modules...")
 	
-	// 0. Initialize Audio Capture (if using real audio)
+	// 0. Initialize Performance Components
+	if useMetrics {
+		log.Println("Initializing metrics collector...")
+		metricsCollector = metrics.NewMetricsCollector()
+		log.Println("✓ Metrics Collector initialized")
+	}
+	
+	if useSilenceDetection {
+		log.Println("Initializing silence detector...")
+		silenceDetector = silence.NewSilenceDetector(0.01, 1000) // 0.01 threshold, 1000 min samples
+		log.Printf("✓ Silence Detector initialized (threshold: %.4f)", silenceDetector.GetThreshold())
+	}
+	
+	// Initialize translation cache
+	log.Println("Initializing translation cache...")
+	translationCache = cache.NewTranslationCache(1000) // Max 1000 entries
+	log.Println("✓ Translation Cache initialized")
+	
+	// 1. Initialize Audio Capture (if using real audio)
 	var audioCapture *audiocapture.AudioCapture
 	if useRealAudio {
 		log.Println("Initializing real audio capture...")
@@ -284,8 +325,27 @@ func processingLoop() {
 		}
 		log.Printf("✓ Captured %d audio samples", len(audioChunk))
 		
+		// Check for silence if enabled
+		if useSilenceDetection && silenceDetector != nil {
+			if silenceDetector.IsSilence(audioChunk) {
+				log.Println("🔇 Silence detected - skipping processing")
+				if useMetrics && metricsCollector != nil {
+					metricsCollector.RecordSilenceSkip()
+					metricsCollector.NextChunk()
+				}
+				continue
+			}
+			log.Println("🎙️  Speech detected - processing...")
+		}
+		
 		// 2. ASR: Transcribe to PT text (M2)
+		startASR := time.Now()
 		textPT, err := asr.Transcribe(audioChunk)
+		asrLatency := time.Since(startASR)
+		if useMetrics && metricsCollector != nil {
+			metricsCollector.RecordLatency("ASR", asrLatency)
+		}
+		
 		if err != nil {
 			log.Printf("❌ ASR error: %v", err)
 			continue
@@ -294,28 +354,62 @@ func processingLoop() {
 			log.Println("No speech detected")
 			continue
 		}
-		log.Printf("✓ ASR: '%s'", textPT)
+		log.Printf("✓ ASR: '%s' (latency: %v)", textPT, asrLatency)
 		
-		// 3. Translation: PT → EN (M3)
-		textEN, err := translator.Translate(textPT)
-		if err != nil {
-			log.Printf("❌ Translation error: %v", err)
-			continue
+		// 3. Translation: PT → EN (M3) with cache
+		startTranslation := time.Now()
+		var textEN string
+		
+		// Check cache first
+		if cachedTranslation, found := translationCache.Get(textPT); found {
+			textEN = cachedTranslation
+			if useMetrics && metricsCollector != nil {
+				metricsCollector.RecordCacheHit()
+			}
+			log.Printf("✓ Translation (cached): '%s'", textEN)
+		} else {
+			textEN, err = translator.Translate(textPT)
+			if useMetrics && metricsCollector != nil {
+				metricsCollector.RecordCacheMiss()
+			}
+			if err != nil {
+				log.Printf("❌ Translation error: %v", err)
+				continue
+			}
+			// Store in cache
+			translationCache.Set(textPT, textEN)
+			log.Printf("✓ Translation: '%s'", textEN)
 		}
-		log.Printf("✓ Translation: '%s'", textEN)
+		
+		translationLatency := time.Since(startTranslation)
+		if useMetrics && metricsCollector != nil {
+			metricsCollector.RecordLatency("Translation", translationLatency)
+		}
+		log.Printf("  (latency: %v)", translationLatency)
 		
 		// 4. TTS: Synthesize EN audio (M4)
+		startTTS := time.Now()
 		audioEN, err := tts.Synthesize(textEN)
+		ttsLatency := time.Since(startTTS)
+		if useMetrics && metricsCollector != nil {
+			metricsCollector.RecordLatency("TTS", ttsLatency)
+		}
+		
 		if err != nil {
 			log.Printf("❌ TTS error: %v", err)
 			continue
 		}
-		log.Printf("✓ TTS: Generated %d audio samples", len(audioEN))
+		log.Printf("✓ TTS: Generated %d audio samples (latency: %v)", len(audioEN), ttsLatency)
 		
 		// 5. Play EN audio (M6)
 		// TODO: Integrate with actual M6 audio playback
 		playAudioChunk(audioEN)
 		log.Println("✓ Audio played")
+		
+		// Move to next chunk for metrics
+		if useMetrics && metricsCollector != nil {
+			metricsCollector.NextChunk()
+		}
 		
 		// Print statistics
 		printStats(asr, translator, tts)
@@ -717,4 +811,48 @@ func printStats(asr ASRInterface, translator TranslatorInterface, tts TTSInterfa
 	log.Printf("  ASR:         %d chunks, avg latency: %v", asrStats.ChunksProcessed, asrStats.AverageLatency)
 	log.Printf("  Translation: %d sentences, avg latency: %v", transStats.SentencesTranslated, transStats.AverageLatency)
 	log.Printf("  TTS:         %d sentences, avg latency: %v", ttsStats.SentencesSynthesized, ttsStats.AverageLatency)
+	
+	// Show performance metrics if enabled
+	if useMetrics && metricsCollector != nil {
+		stats := metricsCollector.GetAggregated()
+		log.Println("⚡ Performance Metrics:")
+		log.Printf("  Total Chunks:    %d", stats.TotalChunks)
+		log.Printf("  Avg Latency:     %v", stats.AverageLatency)
+		log.Printf("  P50 Latency:     %v", stats.P50Latency)
+		log.Printf("  P95 Latency:     %v", stats.P95Latency)
+		log.Printf("  P99 Latency:     %v", stats.P99Latency)
+		
+		if stats.CacheHits+stats.CacheMisses > 0 {
+			log.Printf("  Cache Hit Rate:  %.1f%% (%d hits, %d misses)", 
+				stats.CacheHitRate*100, stats.CacheHits, stats.CacheMisses)
+		}
+		
+		if stats.SilenceSkips > 0 {
+			log.Printf("  Silence Skips:   %d", stats.SilenceSkips)
+		}
+		
+		log.Printf("  Uptime:          %v", stats.Uptime)
+	}
+	
+	// Show silence detection stats if enabled
+	if useSilenceDetection && silenceDetector != nil {
+		silenceStats := silenceDetector.GetStats()
+		if silenceStats.TotalChecks > 0 {
+			log.Println("🔇 Silence Detection:")
+			log.Printf("  Total Checks:    %d", silenceStats.TotalChecks)
+			log.Printf("  Silence:         %d (%.1f%%)", silenceStats.SilenceDetected, silenceStats.SilenceRate*100)
+			log.Printf("  Speech:          %d", silenceStats.SpeechDetected)
+		}
+	}
+	
+	// Show cache stats
+	if translationCache != nil {
+		cacheStats := translationCache.GetStats()
+		if cacheStats.Hits+cacheStats.Misses > 0 {
+			log.Println("💾 Translation Cache:")
+			log.Printf("  Size:            %d/%d entries", cacheStats.Size, cacheStats.MaxSize)
+			log.Printf("  Hit Rate:        %.1f%% (%d hits, %d misses)", 
+				cacheStats.HitRate*100, cacheStats.Hits, cacheStats.Misses)
+		}
+	}
 }

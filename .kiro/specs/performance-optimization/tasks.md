@@ -5,6 +5,7 @@
 - [x] 1. Implement Translation Cache
 
 
+
   - Create `pkg/cache/translation_cache.go`
   - Implement LRU cache with map + doubly-linked list
   - _Requirements: 3.1, 3.2, 3.3_
@@ -30,27 +31,33 @@
   - Load cache from JSON file
   - _Requirements: 3.4_
 
-- [ ]* 1.4 Write unit tests for persistence
+- [-]* 1.4 Write unit tests for persistence
+
   - Test Save() and Load() functions
   - Test error handling
   - _Requirements: 3.4_
 
 ## Phase 2: Silence Detection (TDD)
 
+
 - [ ] 2. Implement Silence Detector
   - Create `pkg/silence/detector.go`
   - Implement energy calculation
   - Implement threshold-based detection
+
   - _Requirements: 4.1, 4.2_
 
 - [ ]* 2.1 Write property test for energy calculation
   - **Property 5: Silence Detection Accuracy**
   - **Validates: Requirements 4.1**
+
+
   - Test that energy < 0.01 is classified as silence
   - Generate random audio samples
 
 - [ ]* 2.2 Write property test for false positive rate
   - **Property 5: Silence Detection Accuracy**
+
   - **Validates: Requirements 4.5**
   - Test that false positive rate < 5%
   - Use real audio samples
@@ -58,16 +65,19 @@
 - [ ] 2.3 Integrate silence detection in pipeline
   - Skip ASR when silence detected
   - Record silence skip metrics
+
   - _Requirements: 4.2, 4.3_
 
 ## Phase 3: Metrics Collection (TDD)
 
-- [ ] 3. Implement Metrics Collector
+- [x] 3. Implement Metrics Collector
+
   - Create `pkg/metrics/collector.go`
   - Implement latency recording
   - Implement cache hit/miss tracking
   - Implement silence skip tracking
   - _Requirements: 6.1, 6.2, 6.3, 6.4_
+
 
 - [ ]* 3.1 Write property test for metrics accuracy
   - **Property 8: Metrics Accuracy**
