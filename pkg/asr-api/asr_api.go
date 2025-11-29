@@ -91,14 +91,21 @@ func (a *ASRAPI) Transcribe(audioSamples []float32) (string, error) {
 
 // callWhisperAPI makes HTTP request to Whisper API
 func (a *ASRAPI) callWhisperAPI(wavData []byte) (string, error) {
-	// Create multipart form data
-	body := &bytes.Buffer{}
 	// TODO: Implement proper multipart form with audio file
-	
 	// For now, return mock response
 	// In real implementation, this would call the actual API
 	
+	// Prevent unused variable warnings
+	_ = wavData
+	_ = bytes.Buffer{}
+	_ = json.Marshal
+	_ = io.Reader(nil)
+	_ = http.Client{}
+	
 	/*
+	// Create multipart form data
+	body := &bytes.Buffer{}
+	
 	req, err := http.NewRequest("POST", a.endpoint, body)
 	if err != nil {
 		return "", err

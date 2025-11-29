@@ -191,6 +191,8 @@
 
 - [ ] 6.2 Measure latency with different sizes
   - Test with 1s, 2s, 3s, 4s, 5s
+
+
   - Record latency for each
   - _Requirements: 5.2_
 
