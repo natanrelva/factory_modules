@@ -216,23 +216,28 @@
   - Test quality mode settings
   - _Requirements: 7.1, 7.2, 7.3_
 
-- [ ] 7.2 Implement mode switching
+- [x] 7.2 Implement mode switching
+
   - Apply settings when mode changes
   - Report expected latency
   - _Requirements: 7.4, 7.5_
 
 ## Phase 8: End-to-End Testing
 
+
 - [ ] 8. Checkpoint - Ensure all tests pass
   - Run all unit tests
   - Run all property tests
   - Run all integration tests
+
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ]* 8.1 Write end-to-end performance test
   - Test complete pipeline with real audio
   - Measure total latency
   - Validate < 6s target
+
+
   - _Requirements: 1.1_
 
 - [ ]* 8.2 Write end-to-end cache test
