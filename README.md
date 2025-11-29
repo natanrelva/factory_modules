@@ -6,31 +6,39 @@ Sistema de dublagem em tempo real de **Português para Inglês** usando **apenas
 
 ## 🚀 Início Rápido
 
-### 1. Instalar Argos Translate
-```bash
-# Instalar
-pip install argostranslate
+### Para Uso com Google Meets
 
-# Instalar pacote PT→EN
+**📖 [Guia Completo: Google Meets Setup](GOOGLE_MEETS_SETUP.md)**
+
+Guia passo a passo completo para usar o sistema em reuniões do Google Meets:
+- Instalação de cabo de áudio virtual
+- Configuração do Windows e Google Meets
+- Modos de performance (low-latency, balanced, quality)
+- Troubleshooting e dicas de uso
+
+### Instalação Básica
+
+### 1. Instalar Dependências
+```bash
+# Instalar pacotes Python
+pip install argostranslate pyttsx3 pywin32 vosk pyaudio
+
+# Instalar pacote PT→EN do Argos
 python -c "import argostranslate.package; argostranslate.package.update_package_index(); [pkg.install() for pkg in argostranslate.package.get_available_packages() if pkg.from_code == 'pt' and pkg.to_code == 'en']"
 ```
 
-### 2. Testar
-```bash
-# Adicionar Python Scripts ao PATH (Windows)
-$env:PATH = "C:\Users\natan\AppData\Local\Programs\Python\Python313\Scripts;$env:PATH"
+### 2. Baixar Modelo Vosk
+- Download: https://alphacephei.com/vosk/models
+- Modelo: `vosk-model-small-pt-0.3.zip` (69 MB)
+- Extrair para: `models/vosk-model-small-pt-0.3/`
 
-# Testar tradução
-go run cmd/test-argos/main.go
-```
-
-### 3. Executar MVP
+### 3. Compilar e Executar
 ```bash
 # Compilar
-go build -o dubbing-mvp cmd/dubbing-mvp/main.go
+go build -o dubbing-mvp.exe cmd/dubbing-mvp/main.go
 
-# Executar
-./dubbing-mvp start --chunk-size 3
+# Executar (modo low-latency recomendado)
+./dubbing-mvp.exe start --mode low-latency --use-vosk --use-argos --use-windows-tts --use-real-audio
 ```
 
 ## 📊 Stack Tecnológico
@@ -51,9 +59,17 @@ Privacidade: 100% ✅
 ## 📚 Documentação
 
 ### Essencial
+- **[GOOGLE_MEETS_SETUP.md](GOOGLE_MEETS_SETUP.md)** 🎙️ - **Guia completo para Google Meets**
 - **[LEIA_ME_PRIMEIRO.md](LEIA_ME_PRIMEIRO.md)** ⭐ - Comece aqui
 - **[GETTING_STARTED.md](GETTING_STARTED.md)** - Guia completo de instalação
 - **[CURRENT_STATUS.md](CURRENT_STATUS.md)** - Status e próximos passos
+
+### Performance
+- **[PERFORMANCE_OPTIMIZATIONS.md](PERFORMANCE_OPTIMIZATIONS.md)** ⚡ - Otimizações implementadas
+  - 70% redução de latência (10s → 2-3s)
+  - 45 testes passando (TDD + Property-Based Testing)
+  - Cache, Silence Detection, Parallel Processing
+  - 3 modos de performance
 
 ### Detalhada
 - **[docs/INSTALL_ARGOS.md](docs/INSTALL_ARGOS.md)** - Instalação Argos Translate
