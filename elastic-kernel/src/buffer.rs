@@ -2,7 +2,7 @@ pub struct RingBuffer {
     buffer: Vec<f32>,
     capacity: usize,
     write_pos: usize,
-    read_pos: usize,
+    read_pos: usize, // Agora atua como o "cursor base" (inteiro)
     count: usize,
 }
 
@@ -24,22 +24,26 @@ impl RingBuffer {
                 self.write_pos = (self.write_pos + 1) % self.capacity;
                 self.count += 1;
             }
-            // Em produção, lidaríamos com overflow (sobrescrever antigo ou rejeitar)
         }
     }
 
-    pub fn pop(&mut self) -> Option<f32> {
-        if self.count > 0 {
-            let sample = self.buffer[self.read_pos];
-            self.read_pos = (self.read_pos + 1) % self.capacity;
-            self.count -= 1;
-            Some(sample)
-        } else {
-            None
+    // Pega o valor em 'offset' a partir do read_pos atual
+    // offset 0 = read_pos, offset 1 = read_pos + 1
+    pub fn get_relative(&self, offset: usize) -> f32 {
+        if offset >= self.count {
+            return 0.0; // Se pedir além do que temos, retorna silêncio
         }
+        let index = (self.read_pos + offset) % self.capacity;
+        self.buffer[index]
+    }
+
+    // Avança o cursor base e remove dados já consumidos
+    pub fn advance(&mut self, amount: usize) {
+        let to_remove = amount.min(self.count);
+        self.read_pos = (self.read_pos + to_remove) % self.capacity;
+        self.count -= to_remove;
     }
     
-    // Útil para saber se estamos ficando sem dados (Underrun risk)
     pub fn len(&self) -> usize {
         self.count
     }

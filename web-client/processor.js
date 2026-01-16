@@ -1,25 +1,42 @@
+import init, { ElasticProcessor } from '../elastic-kernel/pkg/elastic_kernel.js';
+
 class ElasticProcessorNode extends AudioWorkletProcessor {
     constructor() {
         super();
-        this.audioBuffer = new Float32Array(128);
-        this.port.onmessage = (event) => {
-            if (event.data.type === 'audio') {
-                this.audioBuffer = event.data.data;
+        this.initialized = false;
+        
+        this.port.onmessage = async (event) => {
+            const msg = event.data;
+            
+            if (msg.type === 'init') {
+                await init('../elastic-kernel/pkg/elastic_kernel_bg.wasm');
+                // Buffer grande de 10 segundos para testar carregamento de arquivo
+                this.kernel = ElasticProcessor.new(44100 * 10); 
+                this.initialized = true;
+                console.log("Kernel Rust inicializado no Worklet!");
+            } 
+            else if (msg.type === 'data' && this.initialized) {
+                this.kernel.push_data(msg.chunk);
+            }
+            else if (msg.type === 'speed' && this.initialized) {
+                this.kernel.set_playback_rate(msg.value);
+            }
+            else if (msg.type === 'get_health' && this.initialized) {
+                const health = this.kernel.get_buffer_health();
+                this.port.postMessage({ type: 'health', value: health });
             }
         };
-        // Sinaliza que está pronto
-        this.port.postMessage('ready');
-        console.log("AudioWorklet inicializado!");
     }
 
     process(inputs, outputs, parameters) {
+        if (!this.initialized) return true;
+
         const output = outputs[0];
         const channel = output[0]; // Mono
 
-        // Copia o buffer recebido da thread principal
-        channel.set(this.audioBuffer);
+        this.kernel.process(channel);
 
-        // Copiar para os outros canais se houver (estéreo)
+        // Copia mono para todos canais de saída
         for (let i = 1; i < output.length; i++) {
             output[i].set(channel);
         }
