@@ -1,5 +1,51 @@
 # Changelog - Dubbing POC
 
+## [Ciclo 1.2] - 2026-01-16 ⏳ IMPLEMENTADO
+
+### Objetivo
+Implementar algoritmo de Linear Resampling para controle de velocidade de reprodução
+
+### Implementado
+- ✅ Ring Buffer com leitura não-destrutiva (`get_relative`, `advance`)
+- ✅ Algoritmo de interpolação linear para resampling
+- ✅ Controle de playback_rate (0.1x a 4.0x)
+- ✅ Interface web com slider de velocidade
+- ✅ Upload e processamento de arquivos de áudio (MP3/WAV)
+- ✅ Monitoramento de buffer health em tempo real
+- ✅ Comunicação bidirecional main thread ↔ AudioWorklet
+
+### Funcionalidades
+- Carregamento de arquivos de áudio via input file
+- Ajuste de velocidade em tempo real (0.1x a 2.0x)
+- Efeito "monstro" (0.5x - grave e lento)
+- Efeito "esquilo" (1.5x - agudo e rápido)
+- Barra de progresso do buffer
+- Display de velocidade atual
+
+### Descobertas Técnicas
+- **Cursor Fracionário:** Permite interpolação sub-sample precisa
+- **Interpolação Linear:** Fórmula `y = s1 + (s2 - s1) * fraction`
+- **Upload em Chunks:** 4096 samples por mensagem evita travamento
+- **Compilação Incremental:** 0.42s (23x mais rápido que build inicial)
+
+### Pendente Validação
+- ⏳ Teste com arquivo de áudio real
+- ⏳ Medição de qualidade em diferentes velocidades
+- ⏳ Identificação de ponto de ruptura (artefatos)
+- ⏳ Latência de mudança de velocidade
+
+### Documentação
+- 📄 `docs/ciclo-1.2-feedback.md` - ADR completo
+- 📄 `docs/GUIA-VALIDACAO-CICLO-1.2.md` - Guia de teste
+
+### Próximo Ciclo
+**Após validação:** Ciclo 2 - Jitter Buffer e Sincronização
+- Implementar buffer adaptativo
+- Adicionar detecção de underrun/overflow
+- Preparar para streaming de IA em tempo real
+
+---
+
 ## [Ciclo 1.1] - 2026-01-16 ✅ CONCLUÍDO
 
 ### Objetivo
